@@ -7,6 +7,7 @@ PUPPETDB_SSL_VERIFY = True
 PUPPETDB_KEY = None
 PUPPETDB_CERT = None
 PUPPETDB_TIMEOUT = 20
+SERVER_SIDE_QUERIES = False
 DEFAULT_ENVIRONMENT = 'production'
 # this empty string has to be changed, we validate it with check_secret_key()
 SECRET_KEY = ''  # nosec
