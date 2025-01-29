@@ -46,48 +46,82 @@ def inventory(env):
         'inventory.html',
         envs=envs,
         current_env=env,
-        fact_headers=headers)
+        fact_headers=headers,
+        is_server_side=app.config.get('SERVER_SIDE_QUERIES'))
 
 
 @app.route('/inventory/json', defaults={'env': app.config['DEFAULT_ENVIRONMENT']})
 @app.route('/<env>/inventory/json')
 def inventory_ajax(env):
     """Backend endpoint for inventory table"""
+    is_server_side = app.config.get('SERVER_SIDE_QUERIES')
     draw = int(request.args.get('draw', 0))
+    start = int(request.args.get('start', 0))
+    length = int(request.args.get('length', app.config['NORMAL_TABLE_COUNT']))
+    paging_args = {'limit': length, 'offset': start}
 
     envs = environments()
     check_env(env, envs)
     headers, fact_names = inventory_facts()
     fact_templates = app.config['INVENTORY_FACT_TEMPLATES']
-
-    query = AndOperator()
-    fact_query = OrOperator()
-    fact_query.add([EqualsOperator("name", name) for name in fact_names])
-    query.add(fact_query)
-
-    if env != '*':
-        query.add(EqualsOperator("environment", env))
-
-    facts = puppetdb.facts(query=query)
-
     fact_data = {}
-    for fact in facts:
-        if fact.node not in fact_data:
-            fact_data[fact.node] = {}
 
-        fact_value = fact.value
+    if is_server_side:
 
-        if fact.name in fact_templates:
-            fact_template = fact_templates[fact.name]
-            fact_value = render_template_string(
-                fact_template,
-                current_env=env,
-                value=fact_value,
-            )
+        if env != '*':
+            query = AndOperator()
+            query.add(EqualsOperator("environment", env))
+        else:
+            query = None
 
-        fact_data[fact.node][fact.name] = fact_value
+        nodes = puppetdb.inventory(
+            query=query,
+            include_total=True,
+            **paging_args
+        )
 
-    total = len(fact_data)
+        for node in nodes:
+            fact_data[node.node] = {}
+            for fact_name in fact_names:
+                fact_value = node.facts.get(fact_name, '')
+                if fact_name in fact_templates:
+                    fact_template = fact_templates[fact_name]
+                    fact_value = render_template_string(
+                        fact_template,
+                        current_env=env,
+                        value=fact_value,
+                    )
+                fact_data[node.node][fact_name] = fact_value
+
+        total = puppetdb.total
+    else:
+        query = AndOperator()
+        fact_query = OrOperator()
+        fact_query.add([EqualsOperator("name", name) for name in fact_names])
+        query.add(fact_query)
+
+        if env != '*':
+            query.add(EqualsOperator("environment", env))
+
+        facts = puppetdb.facts(query=query)
+
+        for fact in facts:
+            if fact.node not in fact_data:
+                fact_data[fact.node] = {}
+
+            fact_value = fact.value
+
+            if fact.name in fact_templates:
+                fact_template = fact_templates[fact.name]
+                fact_value = render_template_string(
+                    fact_template,
+                    current_env=env,
+                    value=fact_value,
+                )
+
+            fact_data[fact.node][fact.name] = fact_value
+
+        total = len(fact_data)
 
     return render_template(
         'inventory.json.tpl',
